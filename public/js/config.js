@@ -5,6 +5,10 @@ export const CONFIG = {
   // 'static' – never use the backend (GitHub Pages)
   mode: 'auto',
 
+  // Use the Claude-powered cognitive engine when the backend has it switched on.
+  // false = always use the built-in rule-based engine.
+  ai: true,
+
   // Where name, email and answers are sent when there's no backend (GitHub Pages).
   // Paste your Google Apps Script web-app URL here — see README → "Google Sheet setup".
   // Leave empty to not collect submissions.

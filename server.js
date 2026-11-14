@@ -3,15 +3,16 @@ import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { openDb } from './db.js';
-import { computeIkigai, sanitizeAnswers } from './public/js/engine.js';
-import { QUESTIONS, THEMES } from './public/js/questions.js';
+import { computeIkigai, sanitizeAnswers, localFollowup, mergeSynthesis } from './public/js/engine.js';
+import { QUESTIONS, THEMES, CIRCLE_ORDER } from './public/js/questions.js';
+import { createAi } from './ai.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export function createApp({ dbFile = process.env.DB_FILE || join(__dirname, 'data', 'ikigai.db'), adminToken = process.env.ADMIN_TOKEN } = {}) {
+export function createApp({ dbFile = process.env.DB_FILE || join(__dirname, 'data', 'ikigai.db'), adminToken = process.env.ADMIN_TOKEN, ai = createAi() } = {}) {
   const db = openDb(dbFile);
   const app = express();
   app.disable('x-powered-by');
@@ -64,7 +65,7 @@ export function createApp({ dbFile = process.env.DB_FILE || join(__dirname, 'dat
     return j;
   };
 
-  app.get('/api/health', (req, res) => res.json({ ok: true }));
+  app.get('/api/health', (req, res) => res.json({ ok: true, ai: ai.enabled }));
 
   app.post('/api/journeys', limit(20, 15 * 60_000), (req, res) => {
     const name = String(req.body?.name ?? '').replace(/\s+/g, ' ').trim();
@@ -91,13 +92,34 @@ export function createApp({ dbFile = process.env.DB_FILE || join(__dirname, 'dat
     res.json({ ok: true });
   });
 
-  app.post('/api/journeys/:id/complete', limit(30, 15 * 60_000), (req, res) => {
-    const j = getJourneyOr404(req, res);
-    if (!j) return;
-    const answers = sanitizeAnswers(req.body?.answers ?? j.answers);
-    const result = computeIkigai(answers, j.name);
-    db.complete(j.id, answers, result);
-    res.json({ id: j.id, name: j.name, result });
+  // Adaptive question for the end of a circle, written from everything answered so far.
+  app.post('/api/journeys/:id/followup', limit(60, 15 * 60_000), async (req, res, next) => {
+    try {
+      const j = getJourneyOr404(req, res);
+      if (!j) return;
+      const circle = String(req.body?.circle ?? '');
+      if (!CIRCLE_ORDER.includes(circle)) return res.status(400).json({ error: 'Unknown circle' });
+      const answers = sanitizeAnswers(req.body?.answers ?? j.answers);
+      const question = (await ai.followup(circle, answers, j.name)) ?? localFollowup(circle, answers);
+      res.json({ question });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.post('/api/journeys/:id/complete', limit(30, 15 * 60_000), async (req, res, next) => {
+    try {
+      const j = getJourneyOr404(req, res);
+      if (!j) return;
+      const answers = sanitizeAnswers(req.body?.answers ?? j.answers);
+      let result = computeIkigai(answers, j.name);
+      if (j.status === 'complete' && j.result?.ai) result = j.result; // don't pay twice for a retry
+      else result = mergeSynthesis(result, await ai.synthesize(answers, j.name));
+      db.complete(j.id, answers, result);
+      res.json({ id: j.id, name: j.name, result });
+    } catch (err) {
+      next(err);
+    }
   });
 
   // Public, shareable result (no email exposed).
@@ -130,7 +152,7 @@ export function createApp({ dbFile = process.env.DB_FILE || join(__dirname, 'dat
     const label = (ids) => (ids ?? []).map((t) => THEMES[t]?.short ?? t).join(' + ');
     const header = ['name', 'email', 'marketing_opt_in', 'status', 'archetype', 'ikigai', 'passion', 'mission',
       'profession', 'vocation', 'love_words', 'good_words', 'needs_words', 'paid_words', 'work_style',
-      'started_at', 'completed_at', 'result_link', 'answers_json'];
+      'started_at', 'completed_at', 'result_link', 'engine', 'ikigai_title', 'statement', 'engine_insight', 'answers_json'];
     const cell = (v) => {
       let s = v == null ? '' : String(v);
       if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`; // guard against spreadsheet formula injection
@@ -145,7 +167,8 @@ export function createApp({ dbFile = process.env.DB_FILE || join(__dirname, 'dat
         label(x?.overlaps?.passion), label(x?.overlaps?.mission), label(x?.overlaps?.profession), label(x?.overlaps?.vocation),
         x?.circles?.love?.words?.join('; '), x?.circles?.good?.words?.join('; '), x?.circles?.needs?.words?.join('; '),
         x?.circles?.paid?.words?.join('; '), x?.workStyle, r.created_at, r.completed_at,
-        x ? `${base}/?r=${r.id}` : '', JSON.stringify(r.answers),
+        x ? `${base}/?r=${r.id}` : '', x ? (x.ai ? 'ai' : 'rules') : '', x?.ai?.ikigaiTitle, x?.statement, x?.ai?.insight,
+        JSON.stringify(r.answers),
       ].map(cell).join(','));
     }
     res.set('Content-Type', 'text/csv; charset=utf-8');

@@ -10,10 +10,12 @@
   "scripts": {
     "start": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning server.js",
     "dev": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning --watch server.js",
-    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js"
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js",
+    "build:gas": "node scripts/build-gas.mjs"
   },
   "license": "MIT",
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.8.0",
     "express": "^5.3.0"
   }
 }

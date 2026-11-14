@@ -1,9 +1,9 @@
 import { CIRCLES, CIRCLE_ORDER, OVERLAPS, QUESTIONS, THEMES } from './questions.js';
-import { computeIkigai } from './engine.js';
+import { computeIkigai, localFollowup, mergeSynthesis, validateQuestionDef } from './engine.js';
 import { buildDiagramSVG, svgToPngBlob, esc } from './diagram.js';
 import { CONFIG } from './config.js';
 
-const STORE_KEY = 'ikigai.journey.v1';
+const STORE_KEY = 'ikigai.journey.v2';
 const PROFILE_KEY = 'ikigai.profile.v1';
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -92,9 +92,23 @@ async function api(path, opts = {}) {
     method: opts.method ?? 'GET',
     headers: opts.body ? { 'Content-Type': 'application/json' } : undefined,
     body: opts.body ? JSON.stringify(opts.body) : undefined,
+    signal: opts.timeout ? AbortSignal.timeout(opts.timeout) : undefined,
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw Object.assign(new Error(data.error || `Request failed (${res.status})`), { status: res.status });
+  return data;
+}
+
+/** Call the cognitive engine on the Google Apps Script backend (static / GitHub Pages mode). */
+async function engineCall(payload, timeout) {
+  if (!CONFIG.sheetUrl || CONFIG.ai === false) throw new Error('engine not configured');
+  const res = await fetch(CONFIG.sheetUrl, {
+    method: 'POST', // no custom headers, so the browser sends a simple request Apps Script can answer
+    body: JSON.stringify({ ...payload, id: state.id, name: state.name, answers: state.answers }),
+    signal: AbortSignal.timeout(timeout),
+  });
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || 'engine error');
   return data;
 }
 
@@ -197,7 +211,7 @@ function landing() {
       <div class="hero-copy">
         <p class="eyebrow">Ikigai &middot; <span lang="ja">生き甲斐</span> &middot; a reason for being</p>
         <h1>Somewhere between what you love and what the world needs,<br><em>there&rsquo;s you.</em></h1>
-        <p class="lede">The Japanese call it <strong>ikigai</strong>: the quiet place where four circles meet. In about five minutes, fifteen questions will trace your circles and draw the map of where they overlap.</p>
+        <p class="lede">The Japanese call it <strong>ikigai</strong>: the quiet place where four circles meet. In about seven minutes, sixteen questions will trace your circles, and each circle ends with a question written just for you. Then you’ll get the map of where they overlap.</p>
         <div class="cta-row">
           ${resume ? `
             <button class="btn btn-primary" data-act="resume" data-autofocus>Continue your journey, ${esc(saved.name?.split(' ')[0] || 'friend')} &rarr;</button>
@@ -207,9 +221,9 @@ function landing() {
             <button class="btn btn-primary" data-act="start" data-autofocus>Begin the journey &rarr;</button>`}
         </div>
         <ul class="facts">
-          <li><span>15</span> questions</li>
+          <li><span>16</span> questions</li>
           <li><span>4</span> circles</li>
-          <li><span>~5</span> minutes</li>
+          <li><span>~7</span> minutes</li>
           <li><span>1</span> personal map</li>
         </ul>
       </div>
@@ -282,6 +296,7 @@ function profile() {
         }
         store.set(PROFILE_KEY, { name, email, optIn });
         Object.assign(state, { id, name, email, step: 0, answers: {} });
+        followups.clear();
         persistLocal();
         showStep();
       } catch (ex) {
@@ -299,6 +314,7 @@ function showStep() {
   setPhase(item.kind === 'intro' ? 'intro' : 'question', item.circle);
   updateProgress();
   if (item.kind === 'intro') return intro(item.circle);
+  if (item.q.type === 'adaptive') return adaptive(item.q);
   return question(item.q);
 }
 
@@ -328,28 +344,104 @@ function intro(circle) {
   });
 }
 
+// ───────────── Answers ─────────────
+// Adaptive questions keep their generated definition next to the answer: { def, value }.
+const getVal = (q) => (q.adaptive ? state.answers[q.id]?.value : state.answers[q.id]);
+function setVal(q, v) {
+  if (q.adaptive) state.answers[q.id] = { ...state.answers[q.id], value: v };
+  else state.answers[q.id] = v;
+}
+const getNote = (q) => state.answers.notes?.[q.id] || '';
+function setNote(q, text) {
+  const notes = { ...(state.answers.notes || {}) };
+  if (text.trim()) notes[q.id] = text.slice(0, 400);
+  else delete notes[q.id];
+  state.answers.notes = notes;
+}
+
+function isAnswered(q) {
+  const a = getVal(q);
+  const note = getNote(q).trim();
+  if (q.type === 'chips') return (Array.isArray(a) && a.length > 0) || !!note;
+  if (q.type === 'single') return !!a || !!note;
+  return true; // tags are optional, scales always have a value
+}
+
+function ownWordsSoFar() {
+  const words = [];
+  for (const q of QUESTIONS) {
+    if (q.type === 'tags') words.push(...(state.answers[q.id] || []));
+    const n = state.answers.notes?.[q.id];
+    if (n) words.push(n.length > 70 ? `${n.slice(0, 68).trimEnd()}…` : n);
+  }
+  return words;
+}
+
+// ───────────── Adaptive questions ─────────────
+const followups = new Map(); // circle → Promise<def>
+
+function requestFollowup(circle) {
+  if (!followups.has(circle)) {
+    const pending = (async () => {
+      try {
+        let data;
+        if (STATIC) data = await engineCall({ type: 'followup', circle }, 45_000);
+        else data = await api(`/api/journeys/${state.id}/followup`, { method: 'POST', body: { circle, answers: state.answers }, timeout: 50_000 });
+        return validateQuestionDef(data.question, circle);
+      } catch {
+        return null;
+      }
+    })().then((def) => def || localFollowup(circle, state.answers));
+    followups.set(circle, pending);
+  }
+  return followups.get(circle);
+}
+
+async function adaptive(q) {
+  const existing = state.answers[q.id]?.def;
+  if (existing) return question(q, existing);
+
+  const quotes = ownWordsSoFar().slice(-3);
+  await render(`
+    <section class="thinking" aria-live="polite">
+      <div class="think-orb" aria-hidden="true"><span></span><span></span><span></span></div>
+      <p class="eyebrow">The Ikigai engine is reflecting</p>
+      <h2>Reading between your lines&hellip;</h2>
+      ${quotes.length ? `<ul class="think-quotes">${quotes.map((w, i) => `<li style="--i:${i}">&ldquo;${esc(w)}&rdquo;</li>`).join('')}</ul>` : ''}
+      <p class="muted">Writing your next question from what you&rsquo;ve shared so far.</p>
+      <div class="nav center"><button class="btn btn-ghost" data-act="back">&larr; Back</button></div>
+    </section>`, () => stage.querySelector('[data-act="back"]').addEventListener('click', () => go(-1)));
+
+  const minWait = new Promise((r) => setTimeout(r, reduceMotion ? 0 : 1600));
+  const [def] = await Promise.all([requestFollowup(q.circle), minWait]);
+  if (FLOW[state.step]?.q !== q) return; // they navigated away meanwhile
+  state.answers[q.id] = { def, value: def.type === 'single' ? null : [] };
+  autosave();
+  question(q, def);
+}
+
+// ───────────── Question screen ─────────────
 function questionNumber(q) {
   return QUESTIONS.indexOf(q) + 1;
 }
 
-function isAnswered(q) {
-  const a = state.answers[q.id];
-  if (q.type === 'chips') return Array.isArray(a) && a.length > 0;
-  if (q.type === 'single') return !!a;
-  return true; // tags are optional, scales always have a value
-}
-
-function question(q) {
+function question(base, def) {
+  const q = def ? { ...def, id: base.id, circle: base.circle, adaptive: true } : base;
   if (q.type === 'scale' && !state.answers[q.id]) {
     state.answers[q.id] = Object.fromEntries(q.items.map((i) => [i.id, 3]));
   }
-  const num = String(questionNumber(q)).padStart(2, '0');
+  const num = String(questionNumber(base)).padStart(2, '0');
+  const badge = q.adaptive
+    ? `<p class="adaptive-badge"><span aria-hidden="true">✦</span> ${q.source === 'ai' ? 'Written just for you by the Ikigai engine' : 'Shaped by your answers so far'}</p>`
+    : '';
   render(`
-    <section class="panel question q-${q.type}">
+    <section class="panel question q-${q.type}${q.adaptive ? ' is-adaptive' : ''}">
       <p class="q-meta"><span class="q-num">${num}</span><span class="q-total">/ ${TOTAL_Q}</span></p>
+      ${badge}
       <h2 id="q-title">${esc(q.title)}</h2>
-      <p class="hint">${esc(q.hint)}</p>
+      ${q.hint ? `<p class="hint">${esc(q.hint)}</p>` : ''}
       <div class="q-body">${body(q)}</div>
+      ${q.type === 'tags' ? '' : noteField(q)}
       <div class="nav">
         <button class="btn btn-ghost" data-act="back">&larr; Back</button>
         <span class="enter-hint" aria-hidden="true">press <kbd>Enter &crarr;</kbd></span>
@@ -358,15 +450,24 @@ function question(q) {
     </section>`, () => wire(q));
 }
 
+function noteField(q) {
+  const note = getNote(q);
+  return `
+    <div class="note${note ? ' has-text' : ''}">
+      <label for="note-field" class="note-label"><span aria-hidden="true">✎</span> In your own words <em>(optional, but it helps us find your Ikigai)</em></label>
+      <textarea id="note-field" rows="2" maxlength="400" placeholder="${esc(q.note || 'Anything to add? Say it your way…')}">${esc(note)}</textarea>
+    </div>`;
+}
+
 function body(q) {
-  const a = state.answers[q.id];
+  const a = getVal(q);
   if (q.type === 'chips') {
     const sel = new Set(a || []);
     return `
       <div class="chips" role="group" aria-labelledby="q-title">
         ${q.options.map((o, i) => `
-          <button type="button" class="chip" data-id="${o.id}" aria-pressed="${sel.has(o.id)}" style="--i:${i}" ${i === 0 ? 'data-autofocus' : ''}>
-            <span class="chip-emoji" aria-hidden="true">${o.emoji}</span><span>${esc(o.label)}</span>
+          <button type="button" class="chip" data-id="${esc(o.id)}" aria-pressed="${sel.has(o.id)}" style="--i:${i}" ${i === 0 ? 'data-autofocus' : ''}>
+            <span class="chip-emoji" aria-hidden="true">${esc(o.emoji)}</span><span>${esc(o.label)}</span>
           </button>`).join('')}
       </div>
       <p class="counter" aria-live="polite"><span id="count">${sel.size}</span> of ${q.max} chosen</p>`;
@@ -375,8 +476,8 @@ function body(q) {
     return `
       <div class="cards" role="radiogroup" aria-labelledby="q-title">
         ${q.options.map((o, i) => `
-          <button type="button" class="card-opt" role="radio" data-id="${o.id}" aria-checked="${a === o.id}" style="--i:${i}" ${(a ? a === o.id : i === 0) ? 'data-autofocus' : ''}>
-            <span class="card-emoji" aria-hidden="true">${o.emoji}</span><span>${esc(o.label)}</span>
+          <button type="button" class="card-opt" role="radio" data-id="${esc(o.id)}" aria-checked="${a === o.id}" style="--i:${i}" ${(a ? a === o.id : i === 0) ? 'data-autofocus' : ''}>
+            <span class="card-emoji" aria-hidden="true">${esc(o.emoji)}</span><span>${esc(o.label)}</span>
           </button>`).join('')}
       </div>`;
   }
@@ -414,6 +515,7 @@ function wire(q) {
   const next = stage.querySelector('[data-act="next"]');
   const back = stage.querySelector('[data-act="back"]');
   back.addEventListener('click', () => go(-1));
+  wire.commit = null;
 
   const refresh = () => {
     next.disabled = !isAnswered(q);
@@ -421,14 +523,30 @@ function wire(q) {
   };
 
   next.addEventListener('click', () => {
-    if (q.type === 'tags') commitTagField(q);
+    wire.commit?.();
     if (isAnswered(q)) go(1);
   });
+
+  const note = stage.querySelector('#note-field');
+  if (note) {
+    const grow = () => {
+      note.style.height = 'auto';
+      note.style.height = `${Math.min(note.scrollHeight, 220)}px`;
+    };
+    note.addEventListener('input', () => {
+      setNote(q, note.value);
+      note.parentElement.classList.toggle('has-text', !!note.value.trim());
+      grow();
+      refresh();
+      autosave();
+    });
+    grow();
+  }
 
   if (q.type === 'chips') {
     const counter = stage.querySelector('.counter');
     const update = () => {
-      const sel = state.answers[q.id] || [];
+      const sel = getVal(q) || [];
       stage.querySelector('#count').textContent = sel.length;
       stage.querySelectorAll('.chip').forEach((b) => {
         const on = sel.includes(b.dataset.id);
@@ -439,7 +557,7 @@ function wire(q) {
     };
     stage.querySelectorAll('.chip').forEach((b) =>
       b.addEventListener('click', () => {
-        const sel = state.answers[q.id] ? [...state.answers[q.id]] : [];
+        const sel = [...(getVal(q) || [])];
         const i = sel.indexOf(b.dataset.id);
         if (i >= 0) sel.splice(i, 1);
         else if (sel.length < q.max) sel.push(b.dataset.id);
@@ -449,7 +567,7 @@ function wire(q) {
           counter.classList.add('shake');
           return;
         }
-        state.answers[q.id] = sel;
+        setVal(q, sel);
         update();
         autosave();
       }),
@@ -461,12 +579,11 @@ function wire(q) {
     const cards = [...stage.querySelectorAll('.card-opt')];
     cards.forEach((b, idx) => {
       b.addEventListener('click', () => {
-        state.answers[q.id] = b.dataset.id;
-        cards.forEach((c) => c.setAttribute('aria-checked', c === b));
+        const same = getVal(q) === b.dataset.id;
+        setVal(q, same ? null : b.dataset.id);
+        cards.forEach((c) => c.setAttribute('aria-checked', !same && c === b));
         refresh();
         autosave();
-        clearTimeout(wire.adv);
-        wire.adv = setTimeout(() => go(1), reduceMotion ? 120 : 420);
       });
       b.addEventListener('keydown', (e) => {
         const dir = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
@@ -555,11 +672,7 @@ function wire(q) {
   }
 }
 
-function commitTagField() {
-  wire.commit?.();
-}
-
-// Global Enter-to-continue.
+// Global Enter-to-continue (Shift+Enter or plain Enter inside the notes box adds a new line).
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Enter' || e.isComposing || e.defaultPrevented) return;
   const t = e.target;
@@ -572,61 +685,77 @@ document.addEventListener('keydown', (e) => {
 });
 
 // ───────────── Weaving & result ─────────────
+const WEAVE_LINES = [
+  'Listening to what you love…',
+  'Measuring your quiet gifts…',
+  'Mapping what the world is asking of you…',
+  'Following where value flows…',
+  'Reading between your own words…',
+  'Testing a few possible Ikigais against your answers…',
+  'Connecting what you love to what the world needs…',
+  'Choosing the words for your map…',
+];
+
 async function weave() {
   clearTimeout(saveTimer); // the completion call below saves everything
   setPhase('weaving');
   progressEl.hidden = true;
-  const lines = [
-    'Listening to what you love…',
-    'Measuring your quiet gifts…',
-    'Mapping what the world is asking for…',
-    'Following where value flows…',
-    'Weaving your circles together…',
-  ];
   await render(`
     <section class="weaving" aria-live="polite">
       <div class="weave-visual">${venn('weave')}</div>
-      <p class="weave-line" id="weave-line">${lines[0]}</p>
+      <p class="weave-line" id="weave-line">${WEAVE_LINES[0]}</p>
+      <p class="muted weave-note" id="weave-note"></p>
     </section>`);
   let i = 0;
   const ticker = setInterval(() => {
-    i = Math.min(i + 1, lines.length - 1);
+    i = (i + 1) % WEAVE_LINES.length;
     const el = document.getElementById('weave-line');
-    if (el) {
-      el.classList.remove('in');
-      void el.offsetWidth;
-      el.textContent = lines[i];
-      el.classList.add('in');
-    }
-  }, 900);
+    if (!el) return;
+    el.classList.remove('in');
+    void el.offsetWidth;
+    el.textContent = WEAVE_LINES[i];
+    el.classList.add('in');
+  }, 2200);
+  const slow = setTimeout(() => {
+    const n = document.getElementById('weave-note');
+    if (n) n.textContent = 'The engine is thinking deeply about your answers. This can take up to a minute.';
+  }, 9000);
 
   const minWait = new Promise((r) => setTimeout(r, reduceMotion ? 600 : 4600));
   let payload;
   let share = '';
   if (STATIC) {
-    const result = computeIkigai(state.answers, state.name);
+    let result = computeIkigai(state.answers, state.name);
+    try {
+      const data = await engineCall({ type: 'synthesize' }, 110_000);
+      result = mergeSynthesis(result, data.synthesis);
+    } catch {
+      /* the rule-based result stands */
+    }
     payload = { id: state.id, name: state.name, result };
-    share = await encodeShare({ n: result.name, a: state.answers, d: new Date().toISOString().slice(0, 10) });
+    share = await encodeShare({ n: result.name, a: state.answers, d: new Date().toISOString().slice(0, 10), x: result.ai || undefined });
     const label = (ids) => ids.map((t) => THEMES[t]?.short ?? t).join(' + ');
+    const ov = (k) => result.ai?.overlaps[k]?.label || label(result.overlaps[k]);
     const profile = store.get(PROFILE_KEY) || {};
     toSheet({
       type: 'complete', id: state.id, name: state.name, email: state.email || profile.email || '', optIn: !!profile.optIn,
-      archetype: result.archetype, ikigai: label(result.center), harmony: result.harmony,
-      passion: label(result.overlaps.passion), mission: label(result.overlaps.mission),
-      profession: label(result.overlaps.profession), vocation: label(result.overlaps.vocation),
+      archetype: result.archetype, ikigai: result.ai?.ikigaiTitle || label(result.center), harmony: result.harmony,
+      passion: ov('passion'), mission: ov('mission'), profession: ov('profession'), vocation: ov('vocation'),
       loveWords: result.circles.love.words.join('; '), goodWords: result.circles.good.words.join('; '),
       needsWords: result.circles.needs.words.join('; '), paidWords: result.circles.paid.words.join('; '),
       workStyle: result.workStyle || '', resultLink: `${BASE}#r=${share}`, answers: state.answers,
+      engine: result.ai ? 'ai' : 'rules', ikigaiTitle: result.ai?.ikigaiTitle || '', statement: result.statement, insight: result.ai?.insight || '',
     });
   } else {
     try {
-      payload = await api(`/api/journeys/${state.id}/complete`, { method: 'POST', body: { answers: state.answers } });
+      payload = await api(`/api/journeys/${state.id}/complete`, { method: 'POST', body: { answers: state.answers }, timeout: 150_000 });
     } catch {
       payload = { id: state.id, name: state.name, result: computeIkigai(state.answers, state.name), offline: true };
     }
   }
   await minWait;
   clearInterval(ticker);
+  clearTimeout(slow);
   store.set(STORE_KEY, { id: state.id, name: state.name, status: payload.offline ? 'in_progress' : 'complete', step: state.step, answers: state.answers, share });
   const shareUrl = STATIC ? `${BASE}#r=${share}` : `${BASE}?r=${encodeURIComponent(state.id)}`;
   if (!payload.offline) history.replaceState(null, '', shareUrl);
@@ -641,7 +770,7 @@ async function loadShared(code) {
     const data = await decodeShare(code);
     const saved = store.get(STORE_KEY);
     showResult(
-      { id: '', name: data.n, result: computeIkigai(data.a, data.n) },
+      { id: '', name: data.n, result: mergeSynthesis(computeIkigai(data.a, data.n), data.x) },
       { own: saved?.share === code, completedAt: data.d ? `${data.d} 12:00:00` : undefined, shareUrl: `${BASE}#r=${code}` },
     );
   } catch {
@@ -679,8 +808,18 @@ function themeChip(id) {
 function showResult({ id, name, result }, { own = false, offline = false, completedAt, shareUrl = `${BASE}?r=${encodeURIComponent(id)}` } = {}) {
   setPhase('result');
   progressEl.hidden = true;
+  const ai = result.ai;
   const first = (name || '').trim().split(/\s+/)[0] || 'Friend';
   const svg = buildDiagramSVG(result, { name: first, date: completedAt ? `${completedAt.replace(' ', 'T')}Z` : new Date() });
+  const circleWords = (c) => (result.circles[c].words.length ? result.circles[c].words : ai?.circles[c]?.words || []);
+
+  const steps = ai?.nextSteps?.length
+    ? `<ol class="steps">${ai.nextSteps.map((s) => `
+        <li><p class="step-when">${esc(s.when)}</p><p class="step-title">${esc(s.title)}</p><p class="step-text">${esc(s.text)}</p></li>`).join('')}</ol>`
+    : `<div class="next-step cc-${result.nextStep.circle}">
+        <p class="eyebrow">Your next step &middot; ${esc(result.nextStep.title)}</p>
+        <p>${esc(result.nextStep.text)}</p>
+      </div>`;
 
   render(`
     <section class="result">
@@ -689,6 +828,7 @@ function showResult({ id, name, result }, { own = false, offline = false, comple
         <h1>${own ? `${esc(first)}, meet your Ikigai.` : `${esc(first)}’s Ikigai`}</h1>
         <p class="archetype">${esc(result.archetype)}</p>
         <p class="statement">&ldquo;${esc(result.statement)}&rdquo;</p>
+        ${ai ? '<p class="engine-badge"><span aria-hidden="true">✦</span> Reasoned from your own words by the Ikigai engine</p>' : ''}
       </header>
 
       ${offline ? '<p class="notice">We couldn’t save this to the server, so it’s only on this device for now. Try again later from the home page.</p>' : ''}
@@ -704,6 +844,14 @@ function showResult({ id, name, result }, { own = false, offline = false, comple
         ${own ? '<button class="btn btn-ghost" data-act="retake">Retake</button>' : '<a class="btn btn-ghost" href="./">Find your own &rarr;</a>'}
       </div>
 
+      ${ai ? `
+      <section class="insight-card">
+        <p class="eyebrow">At the centre of your circles</p>
+        <h3 class="insight-title">${esc(ai.ikigaiTitle)}</h3>
+        ${ai.ikigaiText ? `<p class="insight-lede">${esc(ai.ikigaiText)}</p>` : ''}
+        ${ai.insight ? `<div class="insight-noticed"><p class="eyebrow">What the engine noticed</p><p>${esc(ai.insight)}</p></div>` : ''}
+      </section>` : ''}
+
       <section class="block">
         <h3 class="block-title">Your four circles</h3>
         <div class="grid-4">
@@ -711,7 +859,7 @@ function showResult({ id, name, result }, { own = false, offline = false, comple
             <article class="circle-card cc-${c}">
               <p class="cc-label"><span class="dot"></span>${esc(CIRCLES[c].title)}</p>
               <p class="cc-sentence">${esc(result.sentences[c])}</p>
-              ${result.circles[c].words.length ? `<p class="cc-words">${result.circles[c].words.map((w) => `<span>&ldquo;${esc(w)}&rdquo;</span>`).join('')}</p>` : ''}
+              ${circleWords(c).length ? `<p class="cc-words">${circleWords(c).map((w) => `<span>&ldquo;${esc(w)}&rdquo;</span>`).join('')}</p>` : ''}
               <div class="cc-themes">${result.circles[c].top.slice(0, 2).map((t) => themeChip(t.id)).join('')}</div>
             </article>`).join('')}
         </div>
@@ -722,9 +870,14 @@ function showResult({ id, name, result }, { own = false, offline = false, comple
         <div class="grid-4">
           ${Object.values(OVERLAPS).map((o) => `
             <article class="overlap-card ov-${o.id}">
-              <p class="ov-label">${esc(o.label)}</p>
-              <p class="ov-meaning">${esc(o.meaning)}</p>
-              <div class="cc-themes">${result.overlaps[o.id].map(themeChip).join('')}</div>
+              ${ai?.overlaps[o.id] ? `
+                <p class="ov-kicker">${esc(o.label)}</p>
+                <p class="ov-label">${esc(ai.overlaps[o.id].label)}</p>
+                <p class="ov-insight">${esc(ai.overlaps[o.id].insight)}</p>
+                <p class="ov-meaning">${esc(o.meaning)}</p>` : `
+                <p class="ov-label">${esc(o.label)}</p>
+                <p class="ov-meaning">${esc(o.meaning)}</p>
+                <div class="cc-themes">${result.overlaps[o.id].map(themeChip).join('')}</div>`}
             </article>`).join('')}
         </div>
       </section>
@@ -743,11 +896,11 @@ function showResult({ id, name, result }, { own = false, offline = false, comple
         </article>
         <article class="paths-card">
           <h3 class="block-title">Paths worth exploring</h3>
-          <ol class="paths">${result.paths.map((p) => `<li>${esc(p)}</li>`).join('')}</ol>
-          <div class="next-step cc-${result.nextStep.circle}">
-            <p class="eyebrow">Your next step &middot; ${esc(result.nextStep.title)}</p>
-            <p>${esc(result.nextStep.text)}</p>
-          </div>
+          <ol class="paths">${ai?.paths?.length
+            ? ai.paths.map((p) => `<li><span><strong>${esc(p.title)}</strong>${p.why ? `<span class="why">${esc(p.why)}</span>` : ''}</span></li>`).join('')
+            : result.paths.map((p) => `<li>${esc(p)}</li>`).join('')}</ol>
+          <h3 class="block-title steps-title">Your next steps</h3>
+          ${steps}
         </article>
       </section>
 
@@ -787,6 +940,7 @@ function showResult({ id, name, result }, { own = false, offline = false, comple
     });
     stage.querySelector('[data-act="retake"]')?.addEventListener('click', () => {
       store.del(STORE_KEY);
+      followups.clear();
       history.replaceState(null, '', location.pathname);
       profile();
     });

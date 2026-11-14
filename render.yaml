@@ -16,6 +16,8 @@ services:
         value: /var/data/ikigai.db
       - key: ADMIN_TOKEN       # password for /admin — find it under the service's Environment tab
         generateValue: true
+      - key: ANTHROPIC_API_KEY # turns on the Claude cognitive engine; leave empty for rules only
+        sync: false
     disk:
       name: ikigai-data
       mountPath: /var/data

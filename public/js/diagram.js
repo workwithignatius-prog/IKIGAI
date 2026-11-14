@@ -55,14 +55,38 @@ function textLines(lines, x, y, { size = 20, weight = 500, gap = 1.35, fill = IN
     .join('');
 }
 
+/** Split text into at most `maxLines` lines of about `width` characters (ellipsis if it overflows). */
+export function wrap(text, width, maxLines = 2) {
+  const words = String(text).trim().split(/\s+/).filter(Boolean);
+  const lines = [];
+  let line = '';
+  for (const w of words) {
+    if (!line) line = w;
+    else if (`${line} ${w}`.length <= width) line = `${line} ${w}`;
+    else {
+      lines.push(line);
+      line = w;
+    }
+  }
+  if (line) lines.push(line);
+  if (lines.length > maxLines) {
+    const rest = lines.splice(maxLines - 1).join(' ');
+    lines.push(clip(rest, width));
+  }
+  return lines.map((l) => clip(l, width + 2));
+}
+
 function outerWords(result, circle, maxChars) {
-  const words = result.circles?.[circle]?.words ?? [];
+  const own = result.circles?.[circle]?.words ?? [];
+  const words = own.length ? own : result.ai?.circles?.[circle]?.words ?? [];
   if (words.length) return words.slice(0, 2).map((w) => clip(w, maxChars));
   const top = (result.circles?.[circle]?.top ?? []).slice(0, 2).map((t) => THEMES[t.id]?.short).filter(Boolean);
   return top.length ? [top.join(' · ')] : [];
 }
 
 function overlapLines(result, key) {
+  const label = result.ai?.overlaps?.[key]?.label;
+  if (label) return wrap(label, 14, 2);
   return (result.overlaps?.[key] ?? []).slice(0, 2).map((t) => THEMES[t]?.short ?? t);
 }
 
@@ -90,7 +114,9 @@ export function buildDiagramSVG(result, { name = '', date = new Date() } = {}) {
     return `<g class="d-label">${textLines([key.toUpperCase()], x, y, { size: 19, weight: 800, spacing: 1.6 })}${textLines(lines, x, y + 30, { size: 17, weight: 600, fill: '#3d3a33', gap: 1.3 })}</g>`;
   };
 
-  const centerLines = [a, b].filter(Boolean).map((t) => THEMES[t]?.short ?? t);
+  const centerLines = result.ai?.ikigaiTitle
+    ? wrap(result.ai.ikigaiTitle, 13, 2)
+    : [a, b].filter(Boolean).map((t) => THEMES[t]?.short ?? t);
 
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1180" width="1000" height="1180" role="img" aria-labelledby="ik-title ik-desc" class="ikigai-map">
   <title id="ik-title">${esc(title)}</title>
@@ -142,7 +168,7 @@ export function buildDiagramSVG(result, { name = '', date = new Date() } = {}) {
 
     <g class="d-center">
       ${textLines(['Ikigai'], 500, 488, { size: 38, weight: 600, family: SERIF, fill: '#FFFFFF' })}
-      ${textLines(centerLines, 500, 522, { size: 16, weight: 700, fill: '#FFFFFF', gap: 1.3, spacing: 0.4 })}
+      ${textLines(centerLines, 500, 522, { size: result.ai ? 17 : 16, weight: 700, fill: '#FFFFFF', gap: 1.3, spacing: 0.4 })}
     </g>
   </g>
 

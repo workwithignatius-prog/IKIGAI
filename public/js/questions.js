@@ -158,18 +158,87 @@ export const THEMES = {
 
 export const THEME_IDS = Object.keys(THEMES);
 
+// Finer-grained material the adaptive engine uses to build follow-up questions
+// when the AI engine is unavailable.
+export const THEME_DETAILS = {
+  create: {
+    facets: ['Visual design & aesthetics', 'Inventing original ideas', 'Making spaces & experiences beautiful', 'Photography, film or illustration'],
+    audiences: ['Brands that need a soul', 'Young creatives finding their voice', 'Communities starved of art'],
+    offers: ['Design for brands & products', 'Creative workshops', 'Commissioned art or visuals'],
+  },
+  tech: {
+    facets: ['Building apps & tools', 'Automating boring work', 'AI & what comes next', 'Taking systems apart to understand them'],
+    audiences: ['Small businesses buried in admin', 'People left behind by technology', 'Teams with broken workflows'],
+    offers: ['Building websites & apps', 'Automation & AI setups', 'Tech support & training'],
+  },
+  teach: {
+    facets: ['Explaining hard ideas simply', 'Seeing someone finally “get it”', 'Designing lessons & courses', 'Mentoring one-on-one'],
+    audiences: ['Kids & teenagers', 'Career changers', 'First-generation learners'],
+    offers: ['Online courses & cohorts', 'Tutoring or coaching', 'Training & workshops for teams'],
+  },
+  care: {
+    facets: ['Listening deeply', 'Helping people through hard times', 'Physical health & the body', 'Mind & emotional health'],
+    audiences: ['People who feel unseen', 'Burnt-out professionals', 'People living with illness'],
+    offers: ['Coaching or counselling', 'Wellness programmes', 'Care & support services'],
+  },
+  words: {
+    facets: ['Writing that moves people', 'Reading & big ideas', 'Telling true stories', 'Editing & sharpening words'],
+    audiences: ['Voices nobody is hearing', 'Brands that can’t explain themselves', 'Readers who need hope'],
+    offers: ['Writing & copywriting', 'Newsletters, books or blogs', 'Ghostwriting & editing'],
+  },
+  nature: {
+    facets: ['Being outdoors', 'Growing & gardening', 'Animals & wildlife', 'Protecting the climate'],
+    audiences: ['Future generations', 'Animals & ecosystems', 'Cities that need more green'],
+    offers: ['Sustainability consulting', 'Eco-friendly products', 'Outdoor experiences & guiding'],
+  },
+  lead: {
+    facets: ['Starting new things', 'Leading a team to a goal', 'Strategy & big decisions', 'Selling & persuading'],
+    audiences: ['Founders & small businesses', 'Teams without direction', 'Communities needing opportunity'],
+    offers: ['Consulting & strategy', 'Running your own venture', 'Leading teams or projects'],
+  },
+  analyze: {
+    facets: ['Solving puzzles', 'Research & discovery', 'Numbers & data', 'Understanding why things happen'],
+    audiences: ['Decision-makers drowning in data', 'Scientists & researchers', 'People misled by misinformation'],
+    offers: ['Research & insight reports', 'Data analysis', 'Market or investment analysis'],
+  },
+  connect: {
+    facets: ['Hosting & gathering people', 'Deep one-on-one conversations', 'Building communities', 'Introducing people to each other'],
+    audiences: ['Lonely or isolated people', 'Newcomers to a city or company', 'Communities drifting apart'],
+    offers: ['Events & experiences', 'Community management', 'Partnerships & networking'],
+  },
+  perform: {
+    facets: ['Music', 'Being on stage or camera', 'Making people laugh or feel', 'Speaking to inspire'],
+    audiences: ['Audiences who need inspiration', 'Young performers', 'Causes that need a voice'],
+    offers: ['Speaking & hosting', 'Performances & shows', 'Video, podcasts & content'],
+  },
+  craft: {
+    facets: ['Cooking & food', 'Building & woodwork', 'Fixing & repairing things', 'Making things by hand'],
+    audiences: ['People who value handmade', 'Neighbours & local communities', 'Anyone tired of throwaway stuff'],
+    offers: ['Handmade products', 'A food business', 'Repairs & skilled trades'],
+  },
+  justice: {
+    facets: ['Standing up for others', 'Fixing unfair systems', 'Campaigning & activism', 'Giving people a fair chance'],
+    audiences: ['Overlooked communities', 'People facing discrimination', 'People with no voice in power'],
+    offers: ['Nonprofit & advocacy roles', 'Social enterprise', 'Policy & campaign work'],
+  },
+};
+
 /*
  * Question types
  *  chips  – multi-select, options carry themes, `max` picks
  *  single – pick one card (auto-advances)
  *  tags   – the person's own words (typed phrases) — shown on their final map
  *  scale  – sliders 1..5, each slider carries themes
+ *  adaptive – generated live from earlier answers (AI engine, or the local fallback)
+ *
+ * Every non-tags question also accepts an open-ended answer (`note`).
  */
 export const QUESTIONS = [
   // ───────────── LOVE ─────────────
   {
     id: 'love_saturday', circle: 'love', type: 'chips', max: 3,
     title: 'It’s a free Saturday. Nothing is scheduled. What pulls you in?',
+    note: 'Or describe your perfect free day in your own words…',
     hint: 'Pick up to 3 — go with your gut, not your to-do list.',
     options: [
       { id: 'sketch', label: 'Sketching or designing something', emoji: '🎨', themes: ['create'] },
@@ -194,27 +263,9 @@ export const QUESTIONS = [
     suggestions: ['Drawing', 'Writing', 'Coding', 'Cooking', 'Gardening', 'Deep conversations', 'Playing music', 'Learning languages'],
   },
   {
-    id: 'love_topics', circle: 'love', type: 'chips', max: 3,
-    title: 'Which topics could you talk about for hours?',
-    hint: 'Pick up to 3.',
-    options: [
-      { id: 'art', label: 'Art & design', emoji: '🖼️', themes: ['create'] },
-      { id: 'tech', label: 'Tech & the future', emoji: '🤖', themes: ['tech'] },
-      { id: 'mind', label: 'Psychology & the mind', emoji: '🧠', themes: ['care'] },
-      { id: 'books', label: 'Books, films & stories', emoji: '🎬', themes: ['words'] },
-      { id: 'nature', label: 'Nature & animals', emoji: '🦋', themes: ['nature'] },
-      { id: 'biz', label: 'Business & startups', emoji: '📈', themes: ['lead'] },
-      { id: 'science', label: 'Science & how things work', emoji: '🔬', themes: ['analyze'] },
-      { id: 'people', label: 'People & cultures', emoji: '🌏', themes: ['connect'] },
-      { id: 'stage', label: 'Music & performance', emoji: '🎸', themes: ['perform'] },
-      { id: 'food', label: 'Food & craftsmanship', emoji: '🥖', themes: ['craft'] },
-      { id: 'causes', label: 'Social causes', emoji: '🕊️', themes: ['justice'] },
-      { id: 'edu', label: 'Learning & education', emoji: '🎓', themes: ['teach'] },
-    ],
-  },
-  {
     id: 'love_child', circle: 'love', type: 'single',
     title: 'At ten years old, you spent most of your time…',
+    note: 'Anything else you loved as a kid? Tell us…',
     hint: 'Childhood often remembers what adulthood forgets.',
     options: [
       { id: 'worlds', label: 'Drawing or building imaginary worlds', emoji: '🏰', themes: ['create', 'craft'] },
@@ -228,11 +279,13 @@ export const QUESTIONS = [
       { id: 'underdog', label: 'Standing up for the underdog', emoji: '🛡️', themes: ['justice'] },
     ],
   },
+  { id: 'adapt_love', circle: 'love', type: 'adaptive' },
 
   // ───────────── GOOD AT ─────────────
   {
     id: 'good_askedfor', circle: 'good', type: 'chips', max: 3,
     title: 'What do friends and colleagues come to you for?',
+    note: 'What do people really come to you for? In your words…',
     hint: 'Pick up to 3. Think about what people actually ask you, not what you wish they’d ask.',
     options: [
       { id: 'advice', label: 'Advice on life or relationships', emoji: '🫂', themes: ['care'] },
@@ -259,6 +312,7 @@ export const QUESTIONS = [
   {
     id: 'good_strengths', circle: 'good', type: 'scale',
     title: 'How naturally do these come to you?',
+    note: 'A strength the sliders missed? Name it…',
     hint: 'Slide honestly — 1 is “I struggle”, 5 is “it’s effortless”.',
     items: [
       { id: 'imagination', label: 'Creative imagination', emoji: '🌈', themes: ['create', 'perform'] },
@@ -269,26 +323,13 @@ export const QUESTIONS = [
       { id: 'hands', label: 'Working with my hands', emoji: '✋', themes: ['craft'] },
     ],
   },
-  {
-    id: 'good_wall', circle: 'good', type: 'single',
-    title: 'A group project hits a wall. You’re the one who…',
-    hint: 'Pick the one that sounds most like you.',
-    options: [
-      { id: 'idea', label: 'Comes up with a wild new idea', emoji: '💥', themes: ['create'] },
-      { id: 'data', label: 'Digs into the data to find the real problem', emoji: '🔎', themes: ['analyze'] },
-      { id: 'prototype', label: 'Quietly builds a working fix', emoji: '⚙️', themes: ['tech', 'craft'] },
-      { id: 'rally', label: 'Rallies everyone and makes a plan', emoji: '📣', themes: ['lead'] },
-      { id: 'feelings', label: 'Checks in on how everyone is feeling', emoji: '🤲', themes: ['care', 'connect'] },
-      { id: 'clarify', label: 'Writes it all down so it finally makes sense', emoji: '🗒️', themes: ['words', 'teach'] },
-      { id: 'present', label: 'Presents the way forward to the boss', emoji: '🎤', themes: ['perform'] },
-      { id: 'fair', label: 'Makes sure the solution is fair to everyone', emoji: '⚖️', themes: ['justice'] },
-    ],
-  },
+  { id: 'adapt_good', circle: 'good', type: 'adaptive' },
 
   // ───────────── WORLD NEEDS ─────────────
   {
     id: 'needs_problems', circle: 'needs', type: 'chips', max: 3,
     title: 'Which problems in the world stir something in you?',
+    note: 'Which problem gets under your skin most — and why?',
     hint: 'Pick up to 3 — the ones you can’t stop thinking about.',
     options: [
       { id: 'climate', label: 'Climate & the environment', emoji: '🔥', themes: ['nature'] },
@@ -308,6 +349,7 @@ export const QUESTIONS = [
   {
     id: 'needs_who', circle: 'needs', type: 'chips', max: 2,
     title: 'Who would you most love to help?',
+    note: 'Who exactly? Describe the people you picture…',
     hint: 'Pick up to 2.',
     options: [
       { id: 'kids', label: 'Children & young people', emoji: '🧒', themes: ['teach', 'care'] },
@@ -328,26 +370,13 @@ export const QUESTIONS = [
     placeholder: 'e.g. kids growing up without mentors',
     suggestions: ['Loneliness', 'Plastic waste', 'Burnout', 'Access to education', 'Mental health stigma', 'Food waste'],
   },
-  {
-    id: 'needs_impact', circle: 'needs', type: 'single',
-    title: 'What kind of impact would make you proudest?',
-    hint: 'There’s no wrong answer.',
-    options: [
-      { id: 'deep', label: 'Deep change in a few lives', emoji: '🌱', themes: ['care', 'teach'] },
-      { id: 'wide', label: 'A small change for millions', emoji: '🌐', themes: ['tech', 'words'] },
-      { id: 'systems', label: 'Fixing a broken system for good', emoji: '🏗️', themes: ['justice', 'lead'] },
-      { id: 'beauty', label: 'More beauty and meaning in the world', emoji: '🌸', themes: ['create', 'perform'] },
-      { id: 'planet', label: 'A healthier planet', emoji: '🌳', themes: ['nature'] },
-      { id: 'together', label: 'Communities that hold each other up', emoji: '🫶', themes: ['connect'] },
-      { id: 'truth', label: 'Answers to questions nobody has solved', emoji: '🧪', themes: ['analyze'] },
-      { id: 'lasting', label: 'Things made well enough to outlive me', emoji: '🪵', themes: ['craft'] },
-    ],
-  },
+  { id: 'adapt_needs', circle: 'needs', type: 'adaptive' },
 
   // ───────────── PAID FOR ─────────────
   {
     id: 'paid_market', circle: 'paid', type: 'chips', max: 3,
     title: 'What could people pay you for — now, or with a little practice?',
+    note: 'Something else people would pay you for?',
     hint: 'Pick up to 3. Be generous with yourself.',
     options: [
       { id: 'design', label: 'Designing visuals or brands', emoji: '🎨', themes: ['create'] },
@@ -374,6 +403,7 @@ export const QUESTIONS = [
   {
     id: 'paid_style', circle: 'paid', type: 'single', style: true,
     title: 'How would you love to earn a living?',
+    note: 'Your ideal working life, in a sentence…',
     hint: 'This shapes the paths we suggest.',
     options: [
       { id: 'employed', label: 'A great role at an organisation I believe in', emoji: '🏢', themes: [] },
@@ -384,4 +414,5 @@ export const QUESTIONS = [
       { id: 'mix', label: 'A mix — a portfolio career', emoji: '🧩', themes: [] },
     ],
   },
+  { id: 'adapt_paid', circle: 'paid', type: 'adaptive' },
 ];
