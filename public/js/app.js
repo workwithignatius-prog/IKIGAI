@@ -257,7 +257,7 @@ function profile() {
         </label>
         <label class="check">
           <input type="checkbox" name="consent" required>
-          <span>I agree that my name, email and answers are saved so my Ikigai can be generated and shown to me.</span>
+          <span>I agree that my name, email and answers are saved, and that my first name and answers are analysed by an AI service (Anthropic’s Claude) to generate my Ikigai. My email is never shared with it.</span>
         </label>
         <label class="check">
           <input type="checkbox" name="optIn">
