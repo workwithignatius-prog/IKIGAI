@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Ikigai Admin</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Manrope:wght@400;600;700;800&display=swap">
+  <link rel="stylesheet" href="/css/styles.css">
+  <link rel="stylesheet" href="/css/admin.css">
+  <script type="module" src="/js/admin.js"></script>
+</head>
+<body data-phase="result">
+  <div class="sky" aria-hidden="true"><div class="orb orb-love"></div><div class="orb orb-paid"></div><div class="grain"></div></div>
+  <header class="topbar">
+    <a class="brand" href="/"><span class="brand-jp" lang="ja">生き甲斐</span><span class="brand-en">Admin</span></a>
+    <div class="admin-actions" id="admin-actions" hidden>
+      <button class="btn btn-small btn-ghost" id="refresh">Refresh</button>
+      <button class="btn btn-small btn-primary" id="csv">Export CSV</button>
+      <button class="btn btn-small btn-ghost" id="logout">Lock</button>
+    </div>
+  </header>
+  <main class="admin">
+    <form class="panel login" id="login" hidden>
+      <h2>Admin access</h2>
+      <p class="hint">Enter the <code>ADMIN_TOKEN</code> configured on the server.</p>
+      <label class="field"><span>Admin token</span><input type="password" name="token" autocomplete="current-password" required></label>
+      <p class="form-error" id="login-error" role="alert"></p>
+      <button class="btn btn-primary" type="submit">Unlock</button>
+    </form>
+
+    <section id="dash" hidden>
+      <div class="stats" id="stats"></div>
+      <div class="filters">
+        <input type="search" id="search" placeholder="Search name, email or Ikigai…" aria-label="Search submissions">
+        <select id="status" aria-label="Filter by status">
+          <option value="">All journeys</option>
+          <option value="complete">Completed</option>
+          <option value="in_progress">In progress</option>
+        </select>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Person</th><th>Ikigai</th><th>Overlaps</th><th>Status</th><th>Started</th><th></th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <p class="muted" id="empty" hidden>No submissions yet. Share your site and they’ll appear here.</p>
+    </section>
+  </main>
+</body>
+</html>
