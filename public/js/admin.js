@@ -45,7 +45,7 @@ async function load() {
       sessionStorage.removeItem(KEY);
       token = '';
       showLogin(e.message);
-    } else showLogin('Could not reach the server.');
+    } else showLogin('The admin dashboard needs the Node server. On GitHub Pages, submissions are collected in your Google Sheet instead.');
   }
 }
 

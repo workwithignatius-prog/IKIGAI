@@ -80,7 +80,31 @@ Set `ADMIN_TOKEN` and open `/admin`. From there you can:
 
 ## Deploying
 
-### Render (one click)
+### GitHub Pages (free, no server)
+
+The site is published to **https://workwithignatius-prog.github.io/ikigai/** by `.github/workflows/pages.yml`. Every push to `main` runs the tests and then redeploys.
+
+With no backend, the site runs entirely in the browser:
+
+- **Submissions** (name, email, opt-in, answers and result) are sent to a **Google Sheet** that you own (setup below).
+- **Share links** carry the person's first name and answers in the link itself (`#r=…`). They never include the email.
+- The `/admin` dashboard isn't available. Your Google Sheet replaces it.
+
+#### Google Sheet setup (about 3 minutes, one time)
+
+1. Create a new Google Sheet (e.g. "IKIGAI submissions").
+2. Open **Extensions → Apps Script**. Delete what's there and paste in the contents of [`google-apps-script/Code.gs`](google-apps-script/Code.gs). Click **Save**.
+3. Click **Deploy → New deployment**. Choose the type **Web app**, then set:
+   - **Execute as:** *Me*
+   - **Who has access:** *Anyone*
+4. Click **Deploy** and authorise. Copy the **Web app URL** (it ends in `/exec`).
+5. Paste that URL into `public/js/config.js` as `sheetUrl: 'https://script.google.com/macros/s/…/exec'`, then commit to `main`.
+
+A row appears in the **Submissions** tab when someone starts, and it fills in when they reveal their Ikigai.
+
+If you later edit `Code.gs`, use **Deploy → Manage deployments → Edit → New version**, so the URL stays the same.
+
+### Render (one click, with the built-in database and admin)
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/workwithignatius-prog/ikigai)
 

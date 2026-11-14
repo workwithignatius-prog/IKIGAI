@@ -1,6 +1,7 @@
 import { CIRCLES, CIRCLE_ORDER, OVERLAPS, QUESTIONS, THEMES } from './questions.js';
 import { computeIkigai } from './engine.js';
 import { buildDiagramSVG, svgToPngBlob, esc } from './diagram.js';
+import { CONFIG } from './config.js';
 
 const STORE_KEY = 'ikigai.journey.v1';
 const PROFILE_KEY = 'ikigai.profile.v1';
@@ -19,6 +20,7 @@ const TOTAL_Q = QUESTIONS.length;
 const state = {
   id: null,
   name: '',
+  email: '',
   step: 0,
   answers: {},
 };
@@ -37,7 +39,51 @@ const store = {
 };
 
 function persistLocal() {
-  store.set(STORE_KEY, { id: state.id, name: state.name, step: state.step, answers: state.answers, status: 'in_progress' });
+  store.set(STORE_KEY, { id: state.id, name: state.name, email: state.email, step: state.step, answers: state.answers, status: 'in_progress' });
+}
+
+// ───────────── Backend detection & static (GitHub Pages) mode ─────────────
+let STATIC = false;
+const BASE = `${location.origin}${location.pathname.replace(/[^/]*$/, '')}`;
+
+async function detectStatic() {
+  if (CONFIG.mode === 'static') return true;
+  if (CONFIG.mode === 'server') return false;
+  if (location.hostname.endsWith('.github.io')) return true;
+  try {
+    const res = await fetch('api/health', { cache: 'no-store' });
+    return !(res.ok && (await res.json()).ok === true);
+  } catch {
+    return true;
+  }
+}
+
+/** Send a submission to the Google Sheet (static mode). Fire-and-forget. */
+function toSheet(payload) {
+  if (!CONFIG.sheetUrl) return;
+  fetch(CONFIG.sheetUrl, {
+    method: 'POST',
+    mode: 'no-cors',
+    keepalive: true,
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ ...payload, page: BASE, at: new Date().toISOString() }),
+  }).catch(() => {});
+}
+
+// Share links in static mode carry the first name + answers (never the email).
+const b64url = (bytes) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const unb64url = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
+const pipe = async (bytes, stream) => new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(stream)).arrayBuffer());
+
+async function encodeShare(obj) {
+  const bytes = new TextEncoder().encode(JSON.stringify(obj));
+  if ('CompressionStream' in window) return `z${b64url(await pipe(bytes, new CompressionStream('deflate-raw')))}`;
+  return `j${b64url(bytes)}`;
+}
+async function decodeShare(code) {
+  let bytes = unb64url(code.slice(1));
+  if (code[0] === 'z') bytes = await pipe(bytes, new DecompressionStream('deflate-raw'));
+  return JSON.parse(new TextDecoder().decode(bytes));
 }
 
 // ───────────── API ─────────────
@@ -57,7 +103,7 @@ function autosave() {
   persistLocal();
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    if (!state.id) return;
+    if (!state.id || STATIC) return;
     api(`/api/journeys/${state.id}`, { method: 'PATCH', body: { answers: state.answers, step: state.step } }).catch(() => {});
   }, 500);
 }
@@ -170,10 +216,10 @@ function landing() {
     </section>`, () => {
     stage.querySelector('[data-act="start"]')?.addEventListener('click', profile);
     stage.querySelector('[data-act="resume"]')?.addEventListener('click', () => {
-      Object.assign(state, { id: saved.id, name: saved.name, step: Math.min(saved.step || 0, FLOW.length - 1), answers: saved.answers || {} });
+      Object.assign(state, { id: saved.id, name: saved.name, email: saved.email || '', step: Math.min(saved.step || 0, FLOW.length - 1), answers: saved.answers || {} });
       showStep();
     });
-    stage.querySelector('[data-act="view"]')?.addEventListener('click', () => loadResult(saved.id, true));
+    stage.querySelector('[data-act="view"]')?.addEventListener('click', () => (saved.share ? loadShared(saved.share) : loadResult(saved.id, true)));
   });
 }
 
@@ -226,9 +272,16 @@ function profile() {
       btn.disabled = true;
       btn.textContent = 'Opening the circles…';
       try {
-        const { id } = await api('/api/journeys', { method: 'POST', body: { name, email, consent: true, optIn: !!fd.get('optIn') } });
-        store.set(PROFILE_KEY, { name, email });
-        Object.assign(state, { id, name, step: 0, answers: {} });
+        const optIn = !!fd.get('optIn');
+        let id;
+        if (STATIC) {
+          id = crypto.randomUUID();
+          toSheet({ type: 'start', id, name, email, optIn, consent: true });
+        } else {
+          ({ id } = await api('/api/journeys', { method: 'POST', body: { name, email, consent: true, optIn } }));
+        }
+        store.set(PROFILE_KEY, { name, email, optIn });
+        Object.assign(state, { id, name, email, step: 0, answers: {} });
         persistLocal();
         showStep();
       } catch (ex) {
@@ -549,16 +602,61 @@ async function weave() {
 
   const minWait = new Promise((r) => setTimeout(r, reduceMotion ? 600 : 4600));
   let payload;
-  try {
-    payload = await api(`/api/journeys/${state.id}/complete`, { method: 'POST', body: { answers: state.answers } });
-  } catch {
-    payload = { id: state.id, name: state.name, result: computeIkigai(state.answers, state.name), offline: true };
+  let share = '';
+  if (STATIC) {
+    const result = computeIkigai(state.answers, state.name);
+    payload = { id: state.id, name: state.name, result };
+    share = await encodeShare({ n: result.name, a: state.answers, d: new Date().toISOString().slice(0, 10) });
+    const label = (ids) => ids.map((t) => THEMES[t]?.short ?? t).join(' + ');
+    const profile = store.get(PROFILE_KEY) || {};
+    toSheet({
+      type: 'complete', id: state.id, name: state.name, email: state.email || profile.email || '', optIn: !!profile.optIn,
+      archetype: result.archetype, ikigai: label(result.center), harmony: result.harmony,
+      passion: label(result.overlaps.passion), mission: label(result.overlaps.mission),
+      profession: label(result.overlaps.profession), vocation: label(result.overlaps.vocation),
+      loveWords: result.circles.love.words.join('; '), goodWords: result.circles.good.words.join('; '),
+      needsWords: result.circles.needs.words.join('; '), paidWords: result.circles.paid.words.join('; '),
+      workStyle: result.workStyle || '', resultLink: `${BASE}#r=${share}`, answers: state.answers,
+    });
+  } else {
+    try {
+      payload = await api(`/api/journeys/${state.id}/complete`, { method: 'POST', body: { answers: state.answers } });
+    } catch {
+      payload = { id: state.id, name: state.name, result: computeIkigai(state.answers, state.name), offline: true };
+    }
   }
   await minWait;
   clearInterval(ticker);
-  store.set(STORE_KEY, { id: state.id, name: state.name, status: payload.offline ? 'in_progress' : 'complete', step: state.step, answers: state.answers });
-  if (!payload.offline) history.replaceState(null, '', `/?r=${encodeURIComponent(state.id)}`);
-  showResult(payload, { own: true, offline: payload.offline });
+  store.set(STORE_KEY, { id: state.id, name: state.name, status: payload.offline ? 'in_progress' : 'complete', step: state.step, answers: state.answers, share });
+  const shareUrl = STATIC ? `${BASE}#r=${share}` : `${BASE}?r=${encodeURIComponent(state.id)}`;
+  if (!payload.offline) history.replaceState(null, '', shareUrl);
+  showResult(payload, { own: true, offline: payload.offline, shareUrl });
+}
+
+async function loadShared(code) {
+  setPhase('weaving');
+  progressEl.hidden = true;
+  stage.innerHTML = `<section class="weaving"><div class="weave-visual">${venn('weave')}</div><p class="weave-line">Unfolding the map…</p></section>`;
+  try {
+    const data = await decodeShare(code);
+    const saved = store.get(STORE_KEY);
+    showResult(
+      { id: '', name: data.n, result: computeIkigai(data.a, data.n) },
+      { own: saved?.share === code, completedAt: data.d ? `${data.d} 12:00:00` : undefined, shareUrl: `${BASE}#r=${code}` },
+    );
+  } catch {
+    mapNotFound(false);
+  }
+}
+
+function mapNotFound(serverDown) {
+  setPhase('landing');
+  render(`
+    <section class="panel center">
+      <h2>That map has drifted away.</h2>
+      <p class="lede">${esc(serverDown ? 'We couldn’t reach the server just now.' : 'We couldn’t find this Ikigai. The link may be incomplete.')}</p>
+      <div class="nav center"><a class="btn btn-primary" href="./">Find your own Ikigai &rarr;</a></div>
+    </section>`);
 }
 
 async function loadResult(id, own = false) {
@@ -569,13 +667,7 @@ async function loadResult(id, own = false) {
     const saved = store.get(STORE_KEY);
     showResult(data, { own: own || saved?.id === id, completedAt: data.completedAt });
   } catch (ex) {
-    setPhase('landing');
-    render(`
-      <section class="panel center">
-        <h2>That map has drifted away.</h2>
-        <p class="lede">${esc(ex.status === 404 ? 'We couldn’t find this Ikigai. The link may be incomplete.' : 'We couldn’t reach the server just now.')}</p>
-        <div class="nav center"><a class="btn btn-primary" href="/">Find your own Ikigai &rarr;</a></div>
-      </section>`);
+    mapNotFound(ex.status !== 404);
   }
 }
 
@@ -584,12 +676,11 @@ function themeChip(id) {
   return t ? `<span class="theme-chip"><span aria-hidden="true">${t.emoji}</span>${esc(t.label)}</span>` : '';
 }
 
-function showResult({ id, name, result }, { own = false, offline = false, completedAt } = {}) {
+function showResult({ id, name, result }, { own = false, offline = false, completedAt, shareUrl = `${BASE}?r=${encodeURIComponent(id)}` } = {}) {
   setPhase('result');
   progressEl.hidden = true;
   const first = (name || '').trim().split(/\s+/)[0] || 'Friend';
   const svg = buildDiagramSVG(result, { name: first, date: completedAt ? `${completedAt.replace(' ', 'T')}Z` : new Date() });
-  const shareUrl = `${location.origin}/?r=${encodeURIComponent(id)}`;
 
   render(`
     <section class="result">
@@ -610,7 +701,7 @@ function showResult({ id, name, result }, { own = false, offline = false, comple
       <div class="actions">
         <button class="btn btn-primary" data-act="png">Download my map</button>
         ${offline ? '' : '<button class="btn btn-ghost" data-act="share">Share</button>'}
-        ${own ? '<button class="btn btn-ghost" data-act="retake">Retake</button>' : '<a class="btn btn-ghost" href="/">Find your own &rarr;</a>'}
+        ${own ? '<button class="btn btn-ghost" data-act="retake">Retake</button>' : '<a class="btn btn-ghost" href="./">Find your own &rarr;</a>'}
       </div>
 
       <section class="block">
@@ -696,13 +787,17 @@ function showResult({ id, name, result }, { own = false, offline = false, comple
     });
     stage.querySelector('[data-act="retake"]')?.addEventListener('click', () => {
       store.del(STORE_KEY);
-      history.replaceState(null, '', '/');
+      history.replaceState(null, '', location.pathname);
       profile();
     });
   });
 }
 
 // ───────────── Boot ─────────────
+STATIC = await detectStatic();
+document.documentElement.dataset.mode = STATIC ? 'static' : 'server';
 const params = new URLSearchParams(location.search);
-if (params.get('r')) loadResult(params.get('r'));
+const sharedCode = location.hash.startsWith('#r=') ? location.hash.slice(3) : '';
+if (sharedCode) loadShared(sharedCode);
+else if (!STATIC && params.get('r')) loadResult(params.get('r'));
 else landing();
