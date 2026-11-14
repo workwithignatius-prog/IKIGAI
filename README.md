@@ -82,7 +82,7 @@ Set `ADMIN_TOKEN` and open `/admin`. From there you can:
 
 ### GitHub Pages (free, no server)
 
-The site is published to **https://workwithignatius-prog.github.io/ikigai/** by `.github/workflows/pages.yml`. Every push to `main` runs the tests and then redeploys.
+The site is published to **https://workwithignatius-prog.github.io/IKIGAI/** by `.github/workflows/pages.yml`. Every push to `main` runs the tests and then redeploys.
 
 With no backend, the site runs entirely in the browser:
 
