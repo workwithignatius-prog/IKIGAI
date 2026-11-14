@@ -80,6 +80,21 @@ Set `ADMIN_TOKEN` and open `/admin`. From there you can:
 
 ## Deploying
 
+### Render (one click)
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/workwithignatius-prog/ikigai)
+
+`render.yaml` sets up the whole service:
+
+- a Node web service on the Starter plan
+- a 1 GB persistent disk at `/var/data` for the SQLite database
+- health checks on `/api/health`
+- an auto-generated `ADMIN_TOKEN`, shown under the service's **Environment** tab in Render
+
+Every push to `main` redeploys automatically.
+
+### Other hosts
+
 Any host that runs Node 22+ works, for example Render, Railway, Fly.io or a VPS.
 
 - Build command: `npm install`
