@@ -211,7 +211,7 @@ function landing() {
       <div class="hero-copy">
         <p class="eyebrow">Ikigai &middot; <span lang="ja">生き甲斐</span> &middot; a reason for being</p>
         <h1>Somewhere between what you love and what the world needs,<br><em>there&rsquo;s you.</em></h1>
-        <p class="lede">The Japanese call it <strong>ikigai</strong>: the quiet place where four circles meet. In about seven minutes, sixteen questions will trace your circles, and each circle ends with a question written just for you. Then you’ll get the map of where they overlap.</p>
+        <p class="lede">The Japanese call it <strong>ikigai</strong>: the quiet place where four circles meet. Answer 12 simple questions (about 4 minutes). You’ll get your Ikigai, a map of your four circles, and the careers that fit you best.</p>
         <div class="cta-row">
           ${resume ? `
             <button class="btn btn-primary" data-act="resume" data-autofocus>Continue your journey, ${esc(saved.name?.split(' ')[0] || 'friend')} &rarr;</button>
@@ -221,9 +221,9 @@ function landing() {
             <button class="btn btn-primary" data-act="start" data-autofocus>Begin the journey &rarr;</button>`}
         </div>
         <ul class="facts">
-          <li><span>16</span> questions</li>
-          <li><span>4</span> circles</li>
-          <li><span>~7</span> minutes</li>
+          <li><span>12</span> questions</li>
+          <li><span>~4</span> minutes</li>
+          <li><span>5</span> career matches</li>
           <li><span>1</span> personal map</li>
         </ul>
       </div>
@@ -453,9 +453,9 @@ function question(base, def) {
 function noteField(q) {
   const note = getNote(q);
   return `
-    <div class="note${note ? ' has-text' : ''}">
-      <label for="note-field" class="note-label"><span aria-hidden="true">✎</span> In your own words <em>(optional, but it helps us find your Ikigai)</em></label>
-      <textarea id="note-field" rows="2" maxlength="400" placeholder="${esc(q.note || 'Anything to add? Say it your way…')}">${esc(note)}</textarea>
+    <div class="note${note ? ' open has-text' : ''}">
+      <button type="button" class="note-toggle" aria-expanded="${note ? 'true' : 'false'}" aria-controls="note-field"><span aria-hidden="true">✎</span> ${note ? 'Your own answer' : 'Add your own answer'}</button>
+      <textarea id="note-field" rows="2" maxlength="400" aria-label="Your own answer" placeholder="${esc(q.note || 'Say it your way…')}"${note ? '' : ' hidden'}>${esc(note)}</textarea>
     </div>`;
 }
 
@@ -539,6 +539,17 @@ function wire(q) {
       grow();
       refresh();
       autosave();
+    });
+    const toggle = stage.querySelector('.note-toggle');
+    toggle.addEventListener('click', () => {
+      const open = note.hidden;
+      note.hidden = !open;
+      toggle.setAttribute('aria-expanded', String(open));
+      note.parentElement.classList.toggle('open', open);
+      if (open) {
+        grow();
+        note.focus();
+      }
     });
     grow();
   }
@@ -728,7 +739,7 @@ async function weave() {
     let result = computeIkigai(state.answers, state.name);
     try {
       const data = await engineCall({ type: 'synthesize' }, 110_000);
-      result = mergeSynthesis(result, data.synthesis);
+      result = mergeSynthesis(result, data.synthesis, state.answers);
     } catch {
       /* the rule-based result stands */
     }
@@ -745,6 +756,7 @@ async function weave() {
       needsWords: result.circles.needs.words.join('; '), paidWords: result.circles.paid.words.join('; '),
       workStyle: result.workStyle || '', resultLink: `${BASE}#r=${share}`, answers: state.answers,
       engine: result.ai ? 'ai' : 'rules', ikigaiTitle: result.ai?.ikigaiTitle || '', statement: result.statement, insight: result.ai?.insight || '',
+      careers: (result.careers || []).map((c) => `${c.title} (${c.match}%)`).join('; '),
     });
   } else {
     try {
@@ -770,7 +782,7 @@ async function loadShared(code) {
     const data = await decodeShare(code);
     const saved = store.get(STORE_KEY);
     showResult(
-      { id: '', name: data.n, result: mergeSynthesis(computeIkigai(data.a, data.n), data.x) },
+      { id: '', name: data.n, result: mergeSynthesis(computeIkigai(data.a, data.n), data.x, data.a) },
       { own: saved?.share === code, completedAt: data.d ? `${data.d} 12:00:00` : undefined, shareUrl: `${BASE}#r=${code}` },
     );
   } catch {
@@ -805,6 +817,29 @@ function themeChip(id) {
   return t ? `<span class="theme-chip"><span aria-hidden="true">${t.emoji}</span>${esc(t.label)}</span>` : '';
 }
 
+const CIRCLE_SHORT = { love: 'Love', good: 'Skills', needs: 'World needs', paid: 'Paid' };
+
+function careerCard(c, i) {
+  const checks = c.circles
+    ? CIRCLE_ORDER.map((k) => `<li class="${c.circles[k] ? 'yes' : 'no'}"><span class="dot dot-${k}" aria-hidden="true"></span>${CIRCLE_SHORT[k]}<span class="sr-only">: ${c.circles[k] ? 'fits' : 'weaker fit'}</span></li>`).join('')
+    : '';
+  return `
+    <article class="career${i === 0 ? ' top' : ''}" style="--i:${i}">
+      <div class="career-head">
+        <span class="career-rank" aria-hidden="true">${i + 1}</span>
+        <h4>${esc(c.title)}</h4>
+        <span class="career-match"><strong>${c.match}%</strong> match</span>
+      </div>
+      <div class="match-bar" aria-hidden="true"><i style="--w:${c.match}%"></i></div>
+      <p class="career-why">${esc(c.why)}</p>
+      <dl class="career-facts">
+        ${c.does ? `<div><dt>What you’d do</dt><dd>${esc(c.does)}</dd></div>` : ''}
+        ${c.start ? `<div><dt>First step</dt><dd>${esc(c.start)}</dd></div>` : ''}
+      </dl>
+      ${checks ? `<ul class="career-circles" aria-label="Which of your circles this career fits">${checks}</ul>` : ''}
+    </article>`;
+}
+
 function showResult({ id, name, result }, { own = false, offline = false, completedAt, shareUrl = `${BASE}?r=${encodeURIComponent(id)}` } = {}) {
   setPhase('result');
   progressEl.hidden = true;
@@ -812,23 +847,17 @@ function showResult({ id, name, result }, { own = false, offline = false, comple
   const first = (name || '').trim().split(/\s+/)[0] || 'Friend';
   const svg = buildDiagramSVG(result, { name: first, date: completedAt ? `${completedAt.replace(' ', 'T')}Z` : new Date() });
   const circleWords = (c) => (result.circles[c].words.length ? result.circles[c].words : ai?.circles[c]?.words || []);
-
-  const steps = ai?.nextSteps?.length
-    ? `<ol class="steps">${ai.nextSteps.map((s) => `
-        <li><p class="step-when">${esc(s.when)}</p><p class="step-title">${esc(s.title)}</p><p class="step-text">${esc(s.text)}</p></li>`).join('')}</ol>`
-    : `<div class="next-step cc-${result.nextStep.circle}">
-        <p class="eyebrow">Your next step &middot; ${esc(result.nextStep.title)}</p>
-        <p>${esc(result.nextStep.text)}</p>
-      </div>`;
+  const sentence = String(result.statement || '').replace(/[.\s]+$/, '');
+  const careers = result.careers || [];
+  const plan = result.plan || ai?.nextSteps || [{ when: 'Next', title: result.nextStep.title, text: result.nextStep.text }];
 
   render(`
     <section class="result">
       <header class="result-head">
-        <p class="eyebrow">${own ? 'Your reason for being' : `${esc(first)}’s reason for being`}</p>
-        <h1>${own ? `${esc(first)}, meet your Ikigai.` : `${esc(first)}’s Ikigai`}</h1>
+        <p class="eyebrow">${own ? `${esc(first)}, your Ikigai is` : `${esc(first)}’s Ikigai is`}</p>
+        <h1 class="ikigai-sentence">${esc(sentence.charAt(0).toUpperCase() + sentence.slice(1))}</h1>
         <p class="archetype">${esc(result.archetype)}</p>
-        <p class="statement">&ldquo;${esc(result.statement)}&rdquo;</p>
-        ${ai ? '<p class="engine-badge"><span aria-hidden="true">✦</span> Reasoned from your own words by the Ikigai engine</p>' : ''}
+        ${ai ? '<p class="engine-badge"><span aria-hidden="true">✦</span> Worked out from your own words by the Ikigai engine</p>' : ''}
       </header>
 
       ${offline ? '<p class="notice">We couldn’t save this to the server, so it’s only on this device for now. Try again later from the home page.</p>' : ''}
@@ -844,65 +873,80 @@ function showResult({ id, name, result }, { own = false, offline = false, comple
         ${own ? '<button class="btn btn-ghost" data-act="retake">Retake</button>' : '<a class="btn btn-ghost" href="./">Find your own &rarr;</a>'}
       </div>
 
-      ${ai ? `
-      <section class="insight-card">
-        <p class="eyebrow">At the centre of your circles</p>
-        <h3 class="insight-title">${esc(ai.ikigaiTitle)}</h3>
-        ${ai.ikigaiText ? `<p class="insight-lede">${esc(ai.ikigaiText)}</p>` : ''}
-        ${ai.insight ? `<div class="insight-noticed"><p class="eyebrow">What the engine noticed</p><p>${esc(ai.insight)}</p></div>` : ''}
+      ${careers.length ? `
+      <section class="block">
+        <div class="block-head">
+          <h3 class="block-title">Careers that fit your Ikigai</h3>
+          <p class="muted">Ranked by how well each one fits all four of your circles.</p>
+        </div>
+        <div class="careers">${careers.map(careerCard).join('')}</div>
       </section>` : ''}
 
       <section class="block">
-        <h3 class="block-title">Your four circles</h3>
-        <div class="grid-4">
-          ${CIRCLE_ORDER.map((c) => `
-            <article class="circle-card cc-${c}">
-              <p class="cc-label"><span class="dot"></span>${esc(CIRCLES[c].title)}</p>
-              <p class="cc-sentence">${esc(result.sentences[c])}</p>
-              ${circleWords(c).length ? `<p class="cc-words">${circleWords(c).map((w) => `<span>&ldquo;${esc(w)}&rdquo;</span>`).join('')}</p>` : ''}
-              <div class="cc-themes">${result.circles[c].top.slice(0, 2).map((t) => themeChip(t.id)).join('')}</div>
-            </article>`).join('')}
+        <div class="block-head">
+          <h3 class="block-title">Your action plan</h3>
+          <p class="muted">Small, real steps to start living your Ikigai.</p>
         </div>
+        <ol class="steps steps-row">${plan.map((s) => `
+          <li><p class="step-when">${esc(s.when)}</p><p class="step-title">${esc(s.title)}</p><p class="step-text">${esc(s.text)}</p></li>`).join('')}</ol>
       </section>
 
-      <section class="block">
-        <h3 class="block-title">Where your circles overlap</h3>
-        <div class="grid-4">
-          ${Object.values(OVERLAPS).map((o) => `
-            <article class="overlap-card ov-${o.id}">
-              ${ai?.overlaps[o.id] ? `
-                <p class="ov-kicker">${esc(o.label)}</p>
-                <p class="ov-label">${esc(ai.overlaps[o.id].label)}</p>
-                <p class="ov-insight">${esc(ai.overlaps[o.id].insight)}</p>
-                <p class="ov-meaning">${esc(o.meaning)}</p>` : `
-                <p class="ov-label">${esc(o.label)}</p>
-                <p class="ov-meaning">${esc(o.meaning)}</p>
-                <div class="cc-themes">${result.overlaps[o.id].map(themeChip).join('')}</div>`}
-            </article>`).join('')}
-        </div>
-      </section>
+      <details class="details-block">
+        <summary><span>How we found your Ikigai</span><span class="muted">Your four circles, where they overlap, and what we noticed</span></summary>
+        <div class="details-body">
+          ${ai ? `
+          <section class="insight-card">
+            <p class="eyebrow">At the centre of your circles</p>
+            <h3 class="insight-title">${esc(ai.ikigaiTitle)}</h3>
+            ${ai.ikigaiText ? `<p class="insight-lede">${esc(ai.ikigaiText)}</p>` : ''}
+            ${ai.insight ? `<div class="insight-noticed"><p class="eyebrow">What the engine noticed</p><p>${esc(ai.insight)}</p></div>` : ''}
+          </section>` : ''}
 
-      <section class="block two-col">
-        <article class="harmony-card">
-          <h3 class="block-title">Circle harmony</h3>
-          <div class="harmony-ring" style="--p:${result.harmony}">
-            <span><strong>${result.harmony}</strong>%</span>
-          </div>
-          <p class="muted">How strongly your core themes, ${esc(THEMES[result.center[0]].short)} and ${esc(THEMES[result.center[1]].short)}, show up in all four circles.</p>
-          <ul class="bars">
-            ${CIRCLE_ORDER.map((c) => `
-              <li class="bar-${c}"><span>${esc(CIRCLES[c].key)}</span><span class="bar"><i style="--w:${Math.max(4, result.balance[c])}%"></i></span><span>${result.balance[c]}</span></li>`).join('')}
-          </ul>
-        </article>
-        <article class="paths-card">
-          <h3 class="block-title">Paths worth exploring</h3>
-          <ol class="paths">${ai?.paths?.length
-            ? ai.paths.map((p) => `<li><span><strong>${esc(p.title)}</strong>${p.why ? `<span class="why">${esc(p.why)}</span>` : ''}</span></li>`).join('')
-            : result.paths.map((p) => `<li>${esc(p)}</li>`).join('')}</ol>
-          <h3 class="block-title steps-title">Your next steps</h3>
-          ${steps}
-        </article>
-      </section>
+          <section class="block">
+            <h3 class="block-title">Your four circles</h3>
+            <div class="grid-4">
+              ${CIRCLE_ORDER.map((c) => `
+                <article class="circle-card cc-${c}">
+                  <p class="cc-label"><span class="dot"></span>${esc(CIRCLES[c].title)}</p>
+                  <p class="cc-sentence">${esc(result.sentences[c])}</p>
+                  ${circleWords(c).length ? `<p class="cc-words">${circleWords(c).map((w) => `<span>&ldquo;${esc(w)}&rdquo;</span>`).join('')}</p>` : ''}
+                  <div class="cc-themes">${result.circles[c].top.slice(0, 2).map((t) => themeChip(t.id)).join('')}</div>
+                </article>`).join('')}
+            </div>
+          </section>
+
+          <section class="block">
+            <h3 class="block-title">Where your circles overlap</h3>
+            <div class="grid-4">
+              ${Object.values(OVERLAPS).map((o) => `
+                <article class="overlap-card ov-${o.id}">
+                  ${ai?.overlaps[o.id] ? `
+                    <p class="ov-kicker">${esc(o.label)}</p>
+                    <p class="ov-label">${esc(ai.overlaps[o.id].label)}</p>
+                    <p class="ov-insight">${esc(ai.overlaps[o.id].insight)}</p>
+                    <p class="ov-meaning">${esc(o.meaning)}</p>` : `
+                    <p class="ov-label">${esc(o.label)}</p>
+                    <p class="ov-meaning">${esc(o.meaning)}</p>
+                    <div class="cc-themes">${result.overlaps[o.id].map(themeChip).join('')}</div>`}
+                </article>`).join('')}
+            </div>
+          </section>
+
+          <section class="block">
+            <article class="harmony-card harmony-wide">
+              <div class="harmony-ring" style="--p:${result.harmony}"><span><strong>${result.harmony}</strong>%</span></div>
+              <div>
+                <h3 class="block-title">Circle harmony</h3>
+                <p class="muted">How strongly your core themes, ${esc(THEMES[result.center[0]].short)} and ${esc(THEMES[result.center[1]].short)}, show up in all four circles.</p>
+                <ul class="bars">
+                  ${CIRCLE_ORDER.map((c) => `
+                    <li class="bar-${c}"><span>${esc(CIRCLES[c].key)}</span><span class="bar"><i style="--w:${Math.max(4, result.balance[c])}%"></i></span><span>${result.balance[c]}</span></li>`).join('')}
+                </ul>
+              </div>
+            </article>
+          </section>
+        </div>
+      </details>
 
       <p class="closing"><span lang="ja">生き甲斐</span> isn&rsquo;t found once. It&rsquo;s tended, like a garden. Come back and retake this whenever life shifts.</p>
     </section>`, () => {
@@ -929,7 +973,7 @@ function showResult({ id, name, result }, { own = false, offline = false, comple
       }
     });
     stage.querySelector('[data-act="share"]')?.addEventListener('click', async () => {
-      const data = { title: `${first}’s Ikigai`, text: `${result.archetype}: ${result.statement}`, url: shareUrl };
+      const data = { title: `${first}’s Ikigai`, text: `My Ikigai: ${sentence}`, url: shareUrl };
       try {
         if (navigator.share) return await navigator.share(data);
         await navigator.clipboard.writeText(shareUrl);

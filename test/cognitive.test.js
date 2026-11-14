@@ -9,19 +9,15 @@ import { SAMPLE_SYNTHESIS } from './fixtures.js';
 
 
 const ANSWERS = {
-  love_saturday: ['read', 'helping'],
+  love_enjoy: ['read', 'helping'],
   love_flow: ['deep conversations', 'writing poems'],
-  love_child: 'reading',
-  good_askedfor: ['advice', 'writing'],
+  good_at: ['listen', 'writing'],
   good_praise: ['listening'],
-  good_strengths: { empathy: 5, communication: 5 },
-  needs_problems: ['mental'],
+  needs_causes: ['health'],
   needs_who: ['patients'],
-  needs_fix: ['mental health stigma'],
-  paid_market: ['content', 'wellness'],
-  paid_before: ['copywriting'],
+  paid_skills: ['content', 'wellness'],
   paid_style: 'creator',
-  notes: { love_saturday: 'Honestly a long walk and a long talk with a friend about life', bogus_q: 'x' },
+  notes: { love_enjoy: 'Honestly a long walk and a long talk with a friend about life', needs_causes: 'mental health stigma', bogus_q: 'x' },
 };
 
 const msg = (obj, stop = 'end_turn') => ({ stop_reason: stop, content: [{ type: 'thinking', thinking: '' }, { type: 'text', text: JSON.stringify(obj) }] });
@@ -44,12 +40,12 @@ test('open-ended notes and adaptive answers are sanitised and scored', () => {
   const raw = { ...ANSWERS, adapt_love: { def, value: [def.options[0].id, 'not-an-option'] } };
   const s = sanitizeAnswers(raw);
   assert.equal(s.notes.bogus_q, undefined, 'notes only for real questions');
-  assert.match(s.notes.love_saturday, /long walk/);
+  assert.match(s.notes.love_enjoy, /long walk/);
   assert.deepEqual(s.adapt_love.value, [def.options[0].id]);
   assert.equal(sanitizeAnswers({ adapt_love: { def: { title: 'x', options: [] } } }).adapt_love, undefined, 'invalid defs dropped');
 
   // A note alone can carry a whole circle.
-  const onlyNotes = computeIkigai({ notes: { paid_market: 'people pay me for coding websites and apps' } });
+  const onlyNotes = computeIkigai({ notes: { paid_skills: 'people pay me for coding websites and apps' } });
   assert.equal(onlyNotes.circles.paid.top[0].id, 'tech');
 });
 
@@ -89,11 +85,17 @@ test('AI responses: refusals and truncation are rejected, synthesis merges and r
   assert.throws(() => parseAiMessage(msg({}, 'refusal')), /refused/);
   assert.throws(() => parseAiMessage(msg({}, 'max_tokens')), /truncated/);
 
-  const merged = mergeSynthesis(computeIkigai(ANSWERS, 'Aiko'), parseAiMessage(msg(SAMPLE_SYNTHESIS)));
+  const merged = mergeSynthesis(computeIkigai(ANSWERS, 'Aiko'), parseAiMessage(msg(SAMPLE_SYNTHESIS)), ANSWERS);
   assert.equal(merged.archetype, 'The Storytelling Healer');
   assert.equal(merged.ai.ikigaiTitle, 'Stories that heal');
   assert.deepEqual(merged.center, ['care', 'words']);
   assert.equal(merged.ai.nextSteps.length, 3);
+  assert.equal(merged.careers.length, 5);
+  assert.equal(merged.careers[0].title, 'Mental-health content writer');
+  assert.equal(merged.careers[0].does, 'Write articles and guides for clinics.');
+  assert.equal(typeof merged.careers[0].circles.love, 'boolean', 'circle fit checked against the answers');
+  assert.equal(merged.plan[0].when, 'This week');
+  assert.equal(mergeSynthesis(computeIkigai(ANSWERS), { ...SAMPLE_SYNTHESIS, careers: [] }).ai, null, 'needs careers');
 
   // Round-trip through a share link (camelCase) is re-validated, not trusted.
   const again = mergeSynthesis(computeIkigai(ANSWERS, 'Aiko'), { ...merged.ai, archetype: 'y'.repeat(500) });

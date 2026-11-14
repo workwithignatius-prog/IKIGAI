@@ -18,21 +18,15 @@ const post = (path, body, method = 'POST') =>
   fetch(base + path, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
 const ANSWERS = {
-  love_saturday: ['tinker', 'learn', 'venture'],
+  love_enjoy: ['tech', 'puzzles', 'ideas'],
   love_flow: ['coding side projects', 'reading about startups'],
-  love_topics: ['tech', 'biz'],
-  love_child: 'apart',
-  good_askedfor: ['fixtech', 'numbers'],
+  good_at: ['fixtech', 'numbers'],
   good_praise: ['debugging', 'Excel'],
-  good_strengths: { logic: 5, leading: 4 },
-  good_wall: 'prototype',
-  needs_problems: ['jobs', 'digital'],
+  needs_causes: ['jobs', 'digital'],
   needs_who: ['founders'],
-  needs_fix: ['small businesses drowning in admin'],
-  needs_impact: 'wide',
-  paid_market: ['software', 'consult'],
-  paid_before: ['building websites'],
+  paid_skills: ['software', 'consult'],
   paid_style: 'business',
+  notes: { needs_who: 'small businesses drowning in admin' },
 };
 
 test('engine finds a coherent ikigai', () => {
@@ -44,6 +38,10 @@ test('engine finds a coherent ikigai', () => {
   assert.deepEqual(r.circles.love.words, ['coding side projects', 'reading about startups']);
   assert.ok(r.harmony > 0 && r.harmony <= 100);
   assert.ok(r.paths.length >= 3);
+  assert.equal(r.careers.length, 5);
+  assert.ok(r.careers.some((c) => c.themes.includes('tech')), 'careers follow the centre');
+  assert.ok(r.careers.every((c) => c.match >= 40 && c.match <= 97 && c.does && c.start));
+  assert.equal(r.plan.length, 3);
 });
 
 test('engine copes with empty answers', () => {
@@ -54,18 +52,16 @@ test('engine copes with empty answers', () => {
 
 test('sanitizeAnswers drops unknown and oversized input', () => {
   const s = sanitizeAnswers({
-    love_saturday: ['tinker', 'nope', 'tinker', 'read', 'host', 'music'],
-    love_child: 'not-an-option',
+    love_enjoy: ['tech', 'nope', 'tech', 'read', 'people', 'music'],
+    paid_style: 'not-an-option',
     love_flow: ['x'.repeat(500), 42, '  ok  '],
     bogus: 'field',
-    good_strengths: { logic: 99, empathy: 'a' },
   });
-  assert.deepEqual(s.love_saturday, ['tinker', 'read', 'host']);
-  assert.equal(s.love_child, undefined);
+  assert.deepEqual(s.love_enjoy, ['tech', 'read', 'people']);
+  assert.equal(s.paid_style, undefined);
   assert.equal(s.love_flow[0].length, 60);
   assert.equal(s.love_flow[1], 'ok');
   assert.equal(s.bogus, undefined);
-  assert.deepEqual(s.good_strengths, { logic: 5 });
 });
 
 test('full journey: start → autosave → complete → public result', async () => {
@@ -74,12 +70,12 @@ test('full journey: start → autosave → complete → public result', async ()
   const { id } = await res.json();
   assert.match(id, /^[0-9a-f-]{36}$/);
 
-  res = await post(`/api/journeys/${id}`, { answers: { love_saturday: ['tinker'] }, step: 2 }, 'PATCH');
+  res = await post(`/api/journeys/${id}`, { answers: { love_enjoy: ['tech'] }, step: 2 }, 'PATCH');
   assert.equal(res.status, 200);
 
   res = await fetch(`${base}/api/journeys/${id}`);
   const saved = await res.json();
-  assert.deepEqual(saved.answers, { love_saturday: ['tinker'] });
+  assert.deepEqual(saved.answers, { love_enjoy: ['tech'] });
   assert.equal(saved.step, 2);
 
   res = await fetch(`${base}/api/results/${id}`);

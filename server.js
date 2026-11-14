@@ -114,7 +114,7 @@ export function createApp({ dbFile = process.env.DB_FILE || join(__dirname, 'dat
       const answers = sanitizeAnswers(req.body?.answers ?? j.answers);
       let result = computeIkigai(answers, j.name);
       if (j.status === 'complete' && j.result?.ai) result = j.result; // don't pay twice for a retry
-      else result = mergeSynthesis(result, await ai.synthesize(answers, j.name));
+      else result = mergeSynthesis(result, await ai.synthesize(answers, j.name), answers);
       db.complete(j.id, answers, result);
       res.json({ id: j.id, name: j.name, result });
     } catch (err) {
@@ -152,7 +152,7 @@ export function createApp({ dbFile = process.env.DB_FILE || join(__dirname, 'dat
     const label = (ids) => (ids ?? []).map((t) => THEMES[t]?.short ?? t).join(' + ');
     const header = ['name', 'email', 'marketing_opt_in', 'status', 'archetype', 'ikigai', 'passion', 'mission',
       'profession', 'vocation', 'love_words', 'good_words', 'needs_words', 'paid_words', 'work_style',
-      'started_at', 'completed_at', 'result_link', 'engine', 'ikigai_title', 'statement', 'engine_insight', 'answers_json'];
+      'started_at', 'completed_at', 'result_link', 'engine', 'ikigai_title', 'statement', 'top_careers', 'engine_insight', 'answers_json'];
     const cell = (v) => {
       let s = v == null ? '' : String(v);
       if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`; // guard against spreadsheet formula injection
@@ -167,7 +167,7 @@ export function createApp({ dbFile = process.env.DB_FILE || join(__dirname, 'dat
         label(x?.overlaps?.passion), label(x?.overlaps?.mission), label(x?.overlaps?.profession), label(x?.overlaps?.vocation),
         x?.circles?.love?.words?.join('; '), x?.circles?.good?.words?.join('; '), x?.circles?.needs?.words?.join('; '),
         x?.circles?.paid?.words?.join('; '), x?.workStyle, r.created_at, r.completed_at,
-        x ? `${base}/?r=${r.id}` : '', x ? (x.ai ? 'ai' : 'rules') : '', x?.ai?.ikigaiTitle, x?.statement, x?.ai?.insight,
+        x ? `${base}/?r=${r.id}` : '', x ? (x.ai ? 'ai' : 'rules') : '', x?.ai?.ikigaiTitle, x?.statement, (x?.careers ?? []).map((c) => c.title).join('; '), x?.ai?.insight,
         JSON.stringify(r.answers),
       ].map(cell).join(','));
     }

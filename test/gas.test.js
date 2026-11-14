@@ -23,7 +23,7 @@ function sandbox({ apiKey = 'sk-test', claude } = {}) {
   let headerWritten = false;
   const sheet = {
     getLastRow: () => (headerWritten ? rows.length + 1 : 0),
-    getLastColumn: () => (headerWritten ? 26 : 0),
+    getLastColumn: () => (headerWritten ? 27 : 0),
     getRange: (r) => (r === 1 ? { setValues: () => { headerWritten = true; return { setFontWeight() {} }; } } : range(r)),
     appendRow: (v) => rows.push(v),
     setFrozenRows() {},

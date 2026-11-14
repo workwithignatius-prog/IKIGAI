@@ -11,26 +11,19 @@ An interactive website that guides your audience through the four circles of Iki
 
 1. **Landing.** A dark, glowing night sky with four drifting orbs of light and a breathing Venn diagram.
 2. **Name & email.** These are saved to the database, with a required privacy consent and an optional email opt-in.
-3. **Four circles, 16 questions.** Each circle opens with its own colour, Japanese kanji and short intro, then asks three core questions. They mix four formats:
-   - multi-select chips
-   - "pick one" cards
-   - free-text tags, where people use their own words
-   - sliders
-
-   **Every question also has an "in your own words" box.** An open-ended answer on its own is enough to continue.
-4. **An adaptive fourth question in every circle.** Each circle ends with a question written for that person from everything they've said so far. It goes deeper into their own words, resolves tensions between answers, or connects to earlier circles. While it's being written, an "engine is reflecting" screen quotes their words back to them.
+3. **12 simple questions, about 4 minutes.** Each circle opens with its own colour and a one-line intro, then asks two short questions: pick a few options, or type a few words. Every question has an **"Add your own answer"** link for anything the options miss. A typed answer on its own is enough to continue.
+4. **An adaptive third question in every circle.** It's written for that person from what they've said so far, in plain words. While it's being written, an "engine is reflecting" screen quotes their words back to them.
 
    A mini Venn diagram in the header fills in as the person progresses. Every answer is auto-saved, so people can close the tab and continue later.
-5. **Weaving.** The four orbs converge while the engine reasons about the whole conversation.
-6. **Result.** The person sees:
-   - their personalised **Ikigai map**, drawn in the classic four-circle style with their own words in each circle
-   - **Passion, Mission, Profession and Vocation** labelled and explained for them, with their **Ikigai** at the centre
-   - an archetype (e.g. *"The Storytelling Healer"*) and a one-line purpose statement
-   - **What the engine noticed**: patterns across their answers that they may not have seen
-   - a circle-harmony score
-   - career paths with the reason each fits them, plus a plan for this week, this month and the next 90 days
+5. **Weaving.** The four orbs converge while the engine works out the result.
+6. **Result.** The page is built around a clear career picture:
+   - **"Your Ikigai is…"**: one plain sentence, plus an archetype (e.g. *"The Storytelling Healer"*)
+   - their personalised **Ikigai map** in the classic four-circle style, downloadable as a PNG
+   - **5 careers that fit**, ranked by match %. Each shows why it fits, what the work looks like day to day, a first step to try it, and which of the four circles it satisfies.
+   - **an action plan** for this week, this month and the next 90 days
+   - **How we found your Ikigai** (expandable): their four circles, the Passion / Mission / Profession / Vocation overlaps, what the engine noticed, and a circle-harmony score
 
-   The map can be **downloaded as a PNG** or **shared** with a link.
+   The result can be **shared** with a link.
 
 ## How the Ikigai is found
 
@@ -41,7 +34,7 @@ There are two engines. The site always uses the best one available.
 When an Anthropic API key is configured, **Claude Opus 5.5** reads the person's whole conversation, especially the things they typed in their own words. It does two jobs:
 
 - **Adaptive questions.** At the end of each circle, it writes the next question for that specific person. This uses low effort, so the question appears in a few seconds.
-- **Synthesis.** At the end, it reasons about where the four circles meet for *this* person. It writes the archetype, the centre of the map, the four overlaps, what it noticed, career paths with reasons, and a 7/30/90-day plan. This uses medium effort and takes about 20–60 seconds.
+- **Synthesis.** At the end, it reasons about where the four circles meet for *this* person. It writes their Ikigai sentence, the archetype, the centre of the map, the four overlaps and what it noticed. It also picks **5 careers**, each with a match %, why it fits, what the work looks like day to day and a first step, plus a 7/30/90-day plan. This uses medium effort and takes about 20–60 seconds.
 
 Its output is constrained to a strict JSON schema, then validated and length-limited before anything is shown. The prompts are in `public/js/cognitive.js`.
 
@@ -61,6 +54,7 @@ Every answer feeds twelve life themes per circle, for example Creativity, Techno
 - **Each overlap** (Passion, Mission, etc.) is the geometric mean of its two circles' theme scores.
 - **The Ikigai at the centre** is the strongest theme across all four circles.
 - **Adaptive questions** are built from the themes the person has shown so far.
+- **Careers** come from a built-in list of about 40 careers (in `public/js/questions.js`). Each career is a mix of themes, and it's scored against the person's four circles and preferred way of working. A career that fits fewer than two circles is ranked lower, and the list is kept varied.
 
 This engine takes over automatically if there's no API key, the API is slow or down, or a spending limit is hit. The person never sees an error.
 
@@ -188,7 +182,7 @@ public/
   admin.html         Admin dashboard
   css/               Styles
   js/config.js       Site settings: Google Sheet URL, AI on/off
-  js/questions.js    Circles, 12 themes, 16 questions (edit me!)
+  js/questions.js    Circles, 12 themes, 12 questions, ~40 careers (edit me!)
   js/engine.js       Rule-based engine, adaptive fallback, result validation
   js/cognitive.js    Prompts + JSON schemas for the Claude engine
   js/diagram.js      Personal Ikigai map (SVG) + PNG export

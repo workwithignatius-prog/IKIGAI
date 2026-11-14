@@ -8,7 +8,7 @@ const HEADERS = [
   'Archetype', 'Ikigai', 'Harmony %', 'Passion', 'Mission', 'Profession', 'Vocation',
   'Love (own words)', 'Good at (own words)', 'World needs (own words)', 'Paid for (own words)',
   'Work style', 'Result link', 'Answers (JSON)', 'Site',
-  'Engine', 'Ikigai title', 'Statement', 'Engine insight',
+  'Engine', 'Ikigai title', 'Statement', 'Engine insight', 'Top careers',
 ];
 
 // Spending guards for the AI engine.
@@ -128,6 +128,7 @@ function saveRow(d, id) {
       row[23] = clean(d.ikigaiTitle, 60);
       row[24] = clean(d.statement, 300);
       row[25] = clean(d.insight, 1200);
+      row[26] = clean(d.careers, 500);
     } else if (!existing) {
       row[3] = 'in progress';
     }
